@@ -1,10 +1,10 @@
 #pragma endian little
-#pragma pattern_limit 0x40000 // Increase this as needed
+#pragma pattern_limit 0x80000 // Increase this as needed
 #pragma array_limit 0x4000
 
-// Credit: https://github.com/ticky/ps2iconsys
+#include <libstd/mem.pat>
 
-struct VertexCoords { // Divide by 4096 and flip Y/Z axis to get proper float value
+struct VertexCoords {
 	s16 x;
 	s16 y;
 	s16 z;
@@ -44,16 +44,24 @@ struct FrameData {
 };
 
 bitfield TextureColor {
-	r: 8;
-	b: 8;
-	g: 8;
-	a: 8;
+	r: 5;
+	g: 5;
+	b: 5;
+	a: 1;
+};
+
+bitfield Attrib {
+	iip: 1; // Shading method; 0 = flat, 1 = gouraud
+	anti: 1; // Anti-aliasing toggle
+	tex: 1; // Texture toggle
+	rle: 1; // Compressed texture toggle
+	padding: 28;
 };
 
 struct Header {
 	u32 file_id;
 	u32 frame_count;
-	u32 texture_type;
+	be Attrib attrib;
 	float reserved;
 	u32 vertices_count;
 };
@@ -70,16 +78,40 @@ struct Animation {
 };
 
 struct Texture {
-	TextureColor pixel[16384]; // 128x128 image
+	be TextureColor pixels[16384]; // 128x128 image
+};
+
+struct RLE {
+	u16 reps;
+	if (reps < 0xFF00) {
+		u16 data;
+	} else {
+		u16 data[(0xFFFF ^ reps) + 1];
+	}
+};
+
+struct CompressedTexture {
+	u32 size;
+	RLE texture[while(std::mem::size() - $ > 0)];
+	std::assert(sizeof(texture) == size, std::format("Texture size does not equal size {}", size));
 };
 
 struct Icon {
 	Header header;
-	Vertex vertex[header.vertices_count];
+	Vertex vertex_data[header.vertices_count];
 	Animation animation;
-	if (header.texture_type <= 7) {
-		Texture texture; // Only uncompressed textures supported for now
+	if (header.attrib.tex) {
+		if (header.attrib.rle) {
+			CompressedTexture texture;
+		} else {
+			Texture texture;
+		}
 	}
 };
 
 Icon icon @ 0x00;
+
+std::print(std::format("Vertex count: {}", icon.header.vertices_count));
+std::print(std::format("Frame count: {}", icon.header.frame_count));
+std::print(std::format("Has texture: {}", icon.header.attrib.tex == 1));
+std::print(std::format("Texture is compressed: {}", icon.header.attrib.rle == 1));
